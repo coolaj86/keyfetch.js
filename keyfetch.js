@@ -115,7 +115,6 @@ function checkId(id) {
   return function (results) {
     var result = results.some(function (result) {
       // we already checked iss above
-      console.log(result);
       return result.jwk.kid === id || result.thumbprint === id;
     })[0];
 
