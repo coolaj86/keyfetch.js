@@ -22,6 +22,9 @@ function checkMinDefaultMax(opts, key, n, d, x) {
   }
 }
 
+keyfetch._clear = function () {
+  keyCache = {};
+};
 keyfetch.init = function (opts) {
   mincache = checkMinDefaultMax(opts, 'mincache',
     1 * 60,
@@ -113,7 +116,7 @@ keyfetch.oidcJwks = function (iss) {
 };
 function checkId(id) {
   return function (results) {
-    var result = results.some(function (result) {
+    var result = results.filter(function (result) {
       // we already checked iss above
       return result.jwk.kid === id || result.thumbprint === id;
     })[0];
