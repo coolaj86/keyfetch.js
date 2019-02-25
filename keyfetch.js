@@ -111,64 +111,36 @@ keyfetch.oidcJwks = function (iss) {
     });
   });
 };
-keyfetch.oidcJwk = function (id, iss) {
-  // TODO [2] DRY this up a bit
-  return keyfetch._checkCache(id, iss).then(function (hit) {
-    if (hit) {
-      return Promise.resolve(hit);
+function checkId(id) {
+  return function (results) {
+    var result = results.some(function (result) {
+      // we already checked iss above
+      console.log(result);
+      return result.jwk.kid === id || result.thumbprint === id;
+    })[0];
+
+    if (!result) {
+      throw new Error("No JWK found by kid or thumbprint '" + id + "'");
     }
-
-    return keyfetch.oidcJwks(iss).then(function (results) {
-      var result = results.some(function (result) {
-        // we already checked iss above
-        return result.jwk.kid === id || result.thumbprint === id;
-      })[0];
-
-      if (!result) {
-        throw new Error("No JWK found by kid or thumbprint '" + id + "'");
-      }
-      return result;
-    });
+    return result;
+  };
+}
+keyfetch.oidcJwk = function (id, iss) {
+  return keyfetch._checkCache(id, iss).then(function (hit) {
+    if (hit) { return hit; }
+    return keyfetch.oidcJwks(iss).then(checkId(id));
   });
 };
 keyfetch.wellKnownJwk = function (id, iss) {
-  // TODO [2] DRY this up a bit
   return keyfetch._checkCache(id, iss).then(function (hit) {
-    if (hit) {
-      return Promise.resolve(hit);
-    }
-
-    return keyfetch.wellKnownJwks(iss).then(function (results) {
-      var result = results.some(function (result) {
-        // we already checked iss above
-        return result.jwk.kid === id || result.thumbprint === id;
-      })[0];
-
-      if (!result) {
-        throw new Error("No JWK found by kid or thumbprint '" + id + "'");
-      }
-      return result;
-    });
+    if (hit) { return hit; }
+    return keyfetch.wellKnownJwks(iss).then(checkId(id));
   });
 };
 keyfetch.jwk = function (id, jwksUrl) {
-  // TODO [2] DRY this up a bit
   return keyfetch._checkCache(id, jwksUrl).then(function (hit) {
-    if (hit) {
-      return Promise.resolve(hit);
-    }
-
-    return keyfetch.jwks(jwksUrl).then(function (results) {
-      var result = results.some(function (result) {
-        // we already checked iss above
-        return result.jwk.kid === id || result.thumbprint === id;
-      })[0];
-
-      if (!result) {
-        throw new Error("No JWK found by kid or thumbprint '" + id + "'");
-      }
-      return result;
-    });
+    if (hit) { return hit; }
+    return keyfetch.jwks(jwksUrl).then(checkId(id));
   });
 };
 keyfetch._checkCache = function (id, iss) {
