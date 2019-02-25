@@ -1,0 +1,35 @@
+{ "author": {
+    "name": "AJ ONeal",
+    "email": "solderjs@gmail.com"
+  },
+  "bundleDependencies": false,
+  "dependencies": {
+    "@coolaj86/urequest": "^1.3.6",
+    "eckles": "^1.4.0",
+    "rasha": "^1.2.1"
+  },
+  "deprecated": false,
+  "description": "Lightweight support for fetching JWKs.",
+  "files": [
+    "keyfetch-test.js"
+  ],
+  "keywords": [
+    "jwks",
+    "jwk",
+    "jwt",
+    "auth0",
+    "pem",
+    "RSA",
+    "EC",
+    "ECDSA",
+    "OIDC",
+    "well-known"
+  ],
+  "license": "MPL-2.0",
+  "main": "keyfetch.js",
+  "name": "keyfetch",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "version": "1.1.1"
+}
