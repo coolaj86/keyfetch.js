@@ -239,15 +239,19 @@ keyfetch.verify = function (opts) {
     var kid = decoded.header.kid;
     var iss;
     var fetcher;
+    var fetchOne;
     if (!opts.strategy || 'oidc' === opts.strategy) {
       iss = decoded.payload.iss;
       fetcher = keyfetch.oidcJwks;
+      fetchOne = keyfetch.oidcJwk;
     } else if ('auth0' === opts.strategy || 'well-known' === opts.strategy) {
       iss = decoded.payload.iss;
       fetcher = keyfetch.wellKnownJwks;
+      fetchOne = keyfetch.wellKnownJwk;
     } else {
       iss = opts.strategy;
       fetcher = keyfetch.jwks;
+      fetchOne = keyfetch.jwk;
     }
     function verify(jwk, payload) {
       var alg = 'RSA-SHA' + decoded.header.alg.replace(/[^\d]+/i, '');
@@ -256,20 +260,28 @@ keyfetch.verify = function (opts) {
         .update(jwt.split('.')[0] + '.' + payload)
         .verify(jwk.pem, decoded.signature, 'base64');
     }
-    return fetcher(iss).then(function (jwks) {
-      var payload = jwt.split('.')[1]; // as string, as it was signed
-      if (jwks.some(function (jwk) {
-        if (kid) {
-          if (kid !== jwk.kid && kid !== jwk.thumbprint) { return; }
-          if (verify(jwk, payload)) { return true; }
-          throw new Error('token signature verification was unsuccessful');
-        } else {
-          if (verify(jwk, payload)) { return true; }
+    if (kid) {
+      return fetchOne(kid, iss); //.catch(fetchAny);
+    } else {
+      fetchAny();
+    }
+
+    function fetchAny() {
+      return fetcher(iss).then(function (jwks) {
+        var payload = jwt.split('.')[1]; // as string, as it was signed
+        if (jwks.some(function (jwk) {
+          if (kid) {
+            if (kid !== jwk.kid && kid !== jwk.thumbprint) { return; }
+            if (verify(jwk, payload)) { return true; }
+            throw new Error('token signature verification was unsuccessful');
+          } else {
+            if (verify(jwk, payload)) { return true; }
+          }
+        })) {
+          return decoded;
         }
-      })) {
-        return decoded;
-      }
-      throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
-    });
+        throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
+      });
+    }
   });
 };
