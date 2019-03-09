@@ -236,6 +236,22 @@ keyfetch.verify = function (opts) {
         throw new Error("token's 'nbf' has not been reached or could not parsed: '" + nbf + "'");
       }
     }
+
+    if (opts.jwks || opts.jwk) {
+      return overrideLookup(opts.jwks || [opts.jwk]);
+    }
+
+    function overrideLookup(jwks) {
+      return Promise.all(jwks.map(function (jwk) {
+        var Keypairs = jwk.x ? Eckles : Rasha;
+        return Keypairs.export({ jwk: jwk }).then(function (pem) {
+          return Keypairs.thumbprint({ jwk: jwk }).then(function (thumb) {
+            return { jwk: jwk, pem: pem, thumbprint: thumb };
+          });
+        });
+      })).then(verifyAny);
+    }
+
     var kid = decoded.header.kid;
     var iss;
     var fetcher;
@@ -254,81 +270,79 @@ keyfetch.verify = function (opts) {
       fetchOne = keyfetch.jwk;
     }
 
-    function verify(jwk, payload) {
-      var alg = 'SHA' + decoded.header.alg.replace(/[^\d]+/i, '');
-      var sig = convertIfEcdsa(decoded.header, decoded.signature);
-      return require('crypto')
-        .createVerify(alg)
-        .update(jwt.split('.')[0] + '.' + payload)
-        .verify(jwk.pem, sig, 'base64')
-      ;
-    }
-
-    function convertIfEcdsa(header, b64sig) {
-      // ECDSA JWT signatures differ from "normal" ECDSA signatures
-      // https://tools.ietf.org/html/rfc7518#section-3.4
-      if (!/^ES/i.test(header.alg)) { return b64sig; }
-
-      var bufsig = Buffer.from(b64sig, 'base64');
-      var hlen = bufsig.byteLength / 2; // should be even
-      var r = bufsig.slice(0, hlen);
-      var s = bufsig.slice(hlen);
-      // unpad positive ints less than 32 bytes wide
-      while (!r[0]) { r = r.slice(1); }
-      while (!s[0]) { s = s.slice(1); }
-      // pad (or re-pad) ambiguously non-negative BigInts to 33 bytes wide
-      if (0x80 & r[0]) { r = Buffer.concat([Buffer.from([0]), r]); }
-      if (0x80 & s[0]) { s = Buffer.concat([Buffer.from([0]), s]); }
-
-      var len = 2 + r.byteLength + 2 + s.byteLength;
-      var head = [0x30];
-      // hard code 0x80 + 1 because it won't be longer than
-      // two SHA512 plus two pad bytes (130 bytes <= 256)
-      if (len >= 0x80) { head.push(0x81); }
-      head.push(len);
-
-      var buf = Buffer.concat([
-        Buffer.from(head)
-      , Buffer.from([0x02, r.byteLength]), r
-      , Buffer.from([0x02, s.byteLength]), s
-      ]);
-
-      return buf.toString('base64')
-        .replace(/-/g, '+')
-        .replace(/_/g, '/')
-        .replace(/=/g, '')
-      ;
-    }
-
     var payload = jwt.split('.')[1]; // as string, as it was signed
     if (kid) {
       return fetchOne(kid, iss).then(verifyOne); //.catch(fetchAny);
     } else {
-      return fetchAny();
+      return fetcher(iss).then(verifyAny);
     }
 
-    function verifyOne(jwk) {
-      if (true === verify(jwk, payload)) {
+    function verify(hit, payload) {
+      var alg = 'SHA' + decoded.header.alg.replace(/[^\d]+/i, '');
+      var sig = ecdsaAsn1SigToJwtSig(decoded.header, decoded.signature);
+      return require('crypto')
+        .createVerify(alg)
+        .update(jwt.split('.')[0] + '.' + payload)
+        .verify(hit.pem, sig, 'base64')
+      ;
+    }
+
+    function verifyOne(hit) {
+      if (true === verify(hit, payload)) {
         return decoded;
       }
       throw new Error('token signature verification was unsuccessful');
     }
 
-    function fetchAny() {
-      return fetcher(iss).then(function (jwks) {
-        if (jwks.some(function (jwk) {
-          if (kid) {
-            if (kid !== jwk.kid && kid !== jwk.thumbprint) { return; }
-            if (true === verify(jwk, payload)) { return true; }
-            throw new Error('token signature verification was unsuccessful');
-          } else {
-            if (true === verify(jwk, payload)) { return true; }
-          }
-        })) {
-          return decoded;
+    function verifyAny(hits) {
+      if (hits.some(function (hit) {
+        if (kid) {
+          if (kid !== hit.jwk.kid && kid !== hit.thumbprint) { return; }
+          if (true === verify(hit, payload)) { return true; }
+          throw new Error('token signature verification was unsuccessful');
+        } else {
+          if (true === verify(hit, payload)) { return true; }
         }
-        throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
-      });
+      })) {
+        return decoded;
+      }
+      throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
     }
   });
 };
+
+function ecdsaAsn1SigToJwtSig(header, b64sig) {
+  // ECDSA JWT signatures differ from "normal" ECDSA signatures
+  // https://tools.ietf.org/html/rfc7518#section-3.4
+  if (!/^ES/i.test(header.alg)) { return b64sig; }
+
+  var bufsig = Buffer.from(b64sig, 'base64');
+  var hlen = bufsig.byteLength / 2; // should be even
+  var r = bufsig.slice(0, hlen);
+  var s = bufsig.slice(hlen);
+  // unpad positive ints less than 32 bytes wide
+  while (!r[0]) { r = r.slice(1); }
+  while (!s[0]) { s = s.slice(1); }
+  // pad (or re-pad) ambiguously non-negative BigInts to 33 bytes wide
+  if (0x80 & r[0]) { r = Buffer.concat([Buffer.from([0]), r]); }
+  if (0x80 & s[0]) { s = Buffer.concat([Buffer.from([0]), s]); }
+
+  var len = 2 + r.byteLength + 2 + s.byteLength;
+  var head = [0x30];
+  // hard code 0x80 + 1 because it won't be longer than
+  // two SHA512 plus two pad bytes (130 bytes <= 256)
+  if (len >= 0x80) { head.push(0x81); }
+  head.push(len);
+
+  var buf = Buffer.concat([
+    Buffer.from(head)
+  , Buffer.from([0x02, r.byteLength]), r
+  , Buffer.from([0x02, s.byteLength]), s
+  ]);
+
+  return buf.toString('base64')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .replace(/=/g, '')
+  ;
+}
