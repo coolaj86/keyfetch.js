@@ -260,7 +260,8 @@ keyfetch.verify = function (opts) {
       return require('crypto')
         .createVerify(alg)
         .update(jwt.split('.')[0] + '.' + payload)
-        .verify(jwk.pem, sig, 'base64');
+        .verify(jwk.pem, sig, 'base64')
+      ;
     }
 
     function convertIfEcdsa(header, b64sig) {
@@ -272,7 +273,10 @@ keyfetch.verify = function (opts) {
       var hlen = bufsig.byteLength / 2; // should be even
       var r = bufsig.slice(0, hlen);
       var s = bufsig.slice(hlen);
-      // pad ambiguously non-negative BigInts
+      // unpad positive ints less than 32 bytes wide
+      while (!r[0]) { r = r.slice(1); }
+      while (!s[0]) { s = s.slice(1); }
+      // pad (or re-pad) ambiguously non-negative BigInts to 33 bytes wide
       if (0x80 & r[0]) { r = Buffer.concat([Buffer.from([0]), r]); }
       if (0x80 & s[0]) { s = Buffer.concat([Buffer.from([0]), s]); }
 
@@ -286,7 +290,7 @@ keyfetch.verify = function (opts) {
       var buf = Buffer.concat([
         Buffer.from(head)
       , Buffer.from([0x02, r.byteLength]), r
-      , Buffer.from([0x02, r.byteLength]), s
+      , Buffer.from([0x02, s.byteLength]), s
       ]);
 
       return buf.toString('base64')
@@ -304,7 +308,7 @@ keyfetch.verify = function (opts) {
     }
 
     function verifyOne(jwk) {
-      if (verify(jwk, payload)) {
+      if (true === verify(jwk, payload)) {
         return decoded;
       }
       throw new Error('token signature verification was unsuccessful');
@@ -315,10 +319,10 @@ keyfetch.verify = function (opts) {
         if (jwks.some(function (jwk) {
           if (kid) {
             if (kid !== jwk.kid && kid !== jwk.thumbprint) { return; }
-            if (verify(jwk, payload)) { return true; }
+            if (true === verify(jwk, payload)) { return true; }
             throw new Error('token signature verification was unsuccessful');
           } else {
-            if (verify(jwk, payload)) { return true; }
+            if (true === verify(jwk, payload)) { return true; }
           }
         })) {
           return decoded;
