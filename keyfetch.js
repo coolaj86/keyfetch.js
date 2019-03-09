@@ -253,22 +253,65 @@ keyfetch.verify = function (opts) {
       fetcher = keyfetch.jwks;
       fetchOne = keyfetch.jwk;
     }
+
     function verify(jwk, payload) {
-      var alg = 'RSA-SHA' + decoded.header.alg.replace(/[^\d]+/i, '');
+      var alg = 'SHA' + decoded.header.alg.replace(/[^\d]+/i, '');
+      var sig = convertIfEcdsa(decoded.header, decoded.signature);
       return require('crypto')
         .createVerify(alg)
         .update(jwt.split('.')[0] + '.' + payload)
-        .verify(jwk.pem, decoded.signature, 'base64');
+        .verify(jwk.pem, sig, 'base64');
     }
+
+    function convertIfEcdsa(header, b64sig) {
+      // ECDSA JWT signatures differ from "normal" ECDSA signatures
+      // https://tools.ietf.org/html/rfc7518#section-3.4
+      if (!/^ES/i.test(header.alg)) { return b64sig; }
+
+      var bufsig = Buffer.from(b64sig, 'base64');
+      var hlen = bufsig.byteLength / 2; // should be even
+      var r = bufsig.slice(0, hlen);
+      var s = bufsig.slice(hlen);
+      // pad ambiguously non-negative BigInts
+      if (0x80 & r[0]) { r = Buffer.concat([Buffer.from([0]), r]); }
+      if (0x80 & s[0]) { s = Buffer.concat([Buffer.from([0]), s]); }
+
+      var len = 2 + r.byteLength + 2 + s.byteLength;
+      var head = [0x30];
+      // hard code 0x80 + 1 because it won't be longer than
+      // two SHA512 plus two pad bytes (130 bytes <= 256)
+      if (len >= 0x80) { head.push(0x81); }
+      head.push(len);
+
+      var buf = Buffer.concat([
+        Buffer.from(head)
+      , Buffer.from([0x02, r.byteLength]), r
+      , Buffer.from([0x02, r.byteLength]), s
+      ]);
+
+      return buf.toString('base64')
+        .replace(/-/g, '+')
+        .replace(/_/g, '/')
+        .replace(/=/g, '')
+      ;
+    }
+
+    var payload = jwt.split('.')[1]; // as string, as it was signed
     if (kid) {
-      return fetchOne(kid, iss); //.catch(fetchAny);
+      return fetchOne(kid, iss).then(verifyOne); //.catch(fetchAny);
     } else {
-      fetchAny();
+      return fetchAny();
+    }
+
+    function verifyOne(jwk) {
+      if (verify(jwk, payload)) {
+        return decoded;
+      }
+      throw new Error('token signature verification was unsuccessful');
     }
 
     function fetchAny() {
       return fetcher(iss).then(function (jwks) {
-        var payload = jwt.split('.')[1]; // as string, as it was signed
         if (jwks.some(function (jwk) {
           if (kid) {
             if (kid !== jwk.kid && kid !== jwk.thumbprint) { return; }
