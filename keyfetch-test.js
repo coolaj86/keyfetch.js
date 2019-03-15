@@ -41,6 +41,8 @@ keypairs.generate().then(function (pair) {
       , keyfetch.jwt.verify(jwt, { jwks: [pair.public] })
       , keyfetch.jwt.verify(jwt, { jwk: pair.public, issuers: ['https://example.com/'] })
       , keyfetch.jwt.verify(jwt, { jwk: pair.public, issuers: ['https://example.com'] })
+      , keyfetch.jwt.verify(jwt, { jwk: pair.public, issuers: ['example.com'] })
+      , keyfetch.jwt.verify(jwt, { jwk: pair.public, issuers: ['example.com/'] })
       , keyfetch.jwt.verify(jwt, { jwk: pair.public, issuers: ['*'] })
       , keyfetch.jwt.verify(jwt, { jwk: pair.public, issuers: ['http://example.com'] })
           .then(e("bad scheme")).catch(throwIfNotExpected)

@@ -1,6 +1,6 @@
 {
   "name": "keyfetch",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Lightweight support for fetching JWKs.",
   "homepage": "https://git.coolaj86.com/coolaj86/keyfetch.js",
   "main": "keyfetch.js",

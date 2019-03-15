@@ -386,7 +386,8 @@ function ecdsaAsn1SigToJwtSig(header, b64sig) {
 function isTrustedIssuer(issuer) {
   return function (trusted) {
     if ('*' === trusted) { return true; }
-    // TODO normalize and account for '*'
+    // TODO account for '*.example.com'
+    trusted = (/^http(s?):\/\//.test(trusted) ? trusted : ('https://' + trusted));
     return issuer.replace(/\/$/, '') === trusted.replace(/\/$/, '') && trusted;
   };
 }
