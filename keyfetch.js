@@ -202,43 +202,114 @@ function normalizeIss(iss) {
   }
   return iss.replace(/\/$/, '');
 }
-keyfetch._decode = function (jwt) {
+
+keyfetch.jwt = {};
+keyfetch.jwt.decode = function (jwt) {
   var parts = jwt.split('.');
-  return {
-    header: JSON.parse(Buffer.from(parts[0], 'base64'))
-  , payload: JSON.parse(Buffer.from(parts[1], 'base64'))
-  , signature: parts[2] //Buffer.from(parts[2], 'base64')
+  // JWS
+  var obj = {
+    protected: parts[0]
+  , payload: parts[1]
+  , signature: parts[2]
   };
+  // JWT
+  obj.header = JSON.parse(Buffer.from(obj.protected, 'base64'));
+  obj.claims = JSON.parse(Buffer.from(obj.payload, 'base64'));
+  return obj;
 };
-keyfetch.verify = function (opts) {
-  var jwt = opts.jwt;
+keyfetch.jwt.verify = function (jwt, opts) {
+  if (!opts) { opts = {}; }
   return Promise.resolve().then(function () {
     var decoded;
     var exp;
     var nbf;
-    var valid;
-    try {
-      decoded = keyfetch._decode(jwt);
-      exp = decoded.payload.exp;
-      nbf = decoded.payload.nbf;
-    } catch (e) {
-      throw new Error("could not parse opts.jwt: '" + jwt + "'");
+    var active;
+    var issuers = opts.issuers || ['*'];
+    var claims = opts.claims || {};
+    if (!jwt || 'string' === typeof jwt) {
+      try { decoded = keyfetch.jwt.decode(jwt); }
+      catch (e) { throw new Error("could not parse jwt: '" + jwt + "'"); }
+    } else {
+      decoded = jwt;
     }
-    if (exp) {
-      valid = (parseInt(exp, 10) - (Date.now()/1000) > 0);
-      if (!valid) {
+    exp = decoded.claims.exp;
+    nbf = decoded.claims.nbf;
+
+    if (!issuers.some(isTrustedIssuer(decoded.claims.iss))) {
+      throw new Error("token was issued by an untrusted issuer: '" + decoded.claims.iss + "'");
+    }
+    // TODO verify claims also?
+    if (!Object.keys(claims).every(function (key) {
+      if (claims[key] === decoded.claims[key]) {
+        return true;
+      }
+    })) {
+      throw new Error("token did not match on one or more authorization claims: '" + Object.keys(claims) + "'");
+    }
+
+    active = ((opts.exp || 0) + parseInt(exp, 10) - (Date.now()/1000) > 0);
+    if (!active) {
+      // expiration was on the token or, if not, such a token is not allowed
+      if (exp || false !== opts.exp) {
         throw new Error("token's 'exp' has passed or could not parsed: '" + exp + "'");
       }
     }
     if (nbf) {
-      valid = (parseInt(nbf, 10) - (Date.now()/1000) <= 0);
-      if (!valid) {
+      active = (parseInt(nbf, 10) - (Date.now()/1000) <= 0);
+      if (!active) {
         throw new Error("token's 'nbf' has not been reached or could not parsed: '" + nbf + "'");
       }
     }
-
     if (opts.jwks || opts.jwk) {
       return overrideLookup(opts.jwks || [opts.jwk]);
+    }
+
+    var kid = decoded.header.kid;
+    var iss;
+    var fetcher;
+    var fetchOne;
+    if (!opts.strategy || 'oidc' === opts.strategy) {
+      iss = decoded.claims.iss;
+      fetcher = keyfetch.oidcJwks;
+      fetchOne = keyfetch.oidcJwk;
+    } else if ('auth0' === opts.strategy || 'well-known' === opts.strategy) {
+      iss = decoded.claims.iss;
+      fetcher = keyfetch.wellKnownJwks;
+      fetchOne = keyfetch.wellKnownJwk;
+    } else {
+      iss = opts.strategy;
+      fetcher = keyfetch.jwks;
+      fetchOne = keyfetch.jwk;
+    }
+
+    var p;
+    if (kid) {
+      p = fetchOne(kid, iss).then(verifyOne); //.catch(fetchAny);
+    } else {
+      p = fetcher(iss).then(verifyAny);
+    }
+    return p;
+
+    function verifyOne(hit) {
+      if (true === keyfetch.jws.verify(decoded, hit)) {
+        return decoded;
+      }
+      throw new Error('token signature verification was unsuccessful');
+    }
+
+    function verifyAny(hits) {
+      if (hits.some(function (hit) {
+        if (kid) {
+          if (kid !== hit.jwk.kid && kid !== hit.thumbprint) { return; }
+          if (true === keyfetch.jws.verify(decoded, hit)) { return true; }
+          throw new Error('token signature verification was unsuccessful');
+        } else {
+          if (true === keyfetch.jws.verify(decoded, hit)) { return true; }
+        }
+      })) {
+        return decoded;
+      }
+      throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
     }
 
     function overrideLookup(jwks) {
@@ -251,63 +322,28 @@ keyfetch.verify = function (opts) {
         });
       })).then(verifyAny);
     }
+  });
+};
+keyfetch.jws = {};
+keyfetch.jws.verify = function (jws, pub) {
+  var alg = 'SHA' + jws.header.alg.replace(/[^\d]+/i, '');
+  var sig = ecdsaAsn1SigToJwtSig(jws.header, jws.signature);
+  return require('crypto')
+    .createVerify(alg)
+    .update(jws.protected + '.' + jws.payload)
+    .verify(pub.pem, sig, 'base64')
+  ;
+};
 
-    var kid = decoded.header.kid;
-    var iss;
-    var fetcher;
-    var fetchOne;
-    if (!opts.strategy || 'oidc' === opts.strategy) {
-      iss = decoded.payload.iss;
-      fetcher = keyfetch.oidcJwks;
-      fetchOne = keyfetch.oidcJwk;
-    } else if ('auth0' === opts.strategy || 'well-known' === opts.strategy) {
-      iss = decoded.payload.iss;
-      fetcher = keyfetch.wellKnownJwks;
-      fetchOne = keyfetch.wellKnownJwk;
-    } else {
-      iss = opts.strategy;
-      fetcher = keyfetch.jwks;
-      fetchOne = keyfetch.jwk;
-    }
-
-    var payload = jwt.split('.')[1]; // as string, as it was signed
-    if (kid) {
-      return fetchOne(kid, iss).then(verifyOne); //.catch(fetchAny);
-    } else {
-      return fetcher(iss).then(verifyAny);
-    }
-
-    function verify(hit, payload) {
-      var alg = 'SHA' + decoded.header.alg.replace(/[^\d]+/i, '');
-      var sig = ecdsaAsn1SigToJwtSig(decoded.header, decoded.signature);
-      return require('crypto')
-        .createVerify(alg)
-        .update(jwt.split('.')[0] + '.' + payload)
-        .verify(hit.pem, sig, 'base64')
-      ;
-    }
-
-    function verifyOne(hit) {
-      if (true === verify(hit, payload)) {
-        return decoded;
-      }
-      throw new Error('token signature verification was unsuccessful');
-    }
-
-    function verifyAny(hits) {
-      if (hits.some(function (hit) {
-        if (kid) {
-          if (kid !== hit.jwk.kid && kid !== hit.thumbprint) { return; }
-          if (true === verify(hit, payload)) { return true; }
-          throw new Error('token signature verification was unsuccessful');
-        } else {
-          if (true === verify(hit, payload)) { return true; }
-        }
-      })) {
-        return decoded;
-      }
-      throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
-    }
+// old, gotta make sure nothing else uses this
+keyfetch._decode = function (jwt) {
+  var obj = keyfetch.jwt.decode(jwt);
+  return { header: obj.header, payload: obj.claims, signature: obj.signature };
+};
+keyfetch.verify = function (opts) {
+  var jwt = opts.jwt;
+  return keyfetch.jwt.verify(jwt, opts).then(function (obj) {
+    return { header: obj.header, payload: obj.claims, signature: obj.signature };
   });
 };
 
@@ -345,4 +381,12 @@ function ecdsaAsn1SigToJwtSig(header, b64sig) {
     .replace(/_/g, '/')
     .replace(/=/g, '')
   ;
+}
+
+function isTrustedIssuer(issuer) {
+  return function (trusted) {
+    if ('*' === trusted) { return true; }
+    // TODO normalize and account for '*'
+    return issuer.replace(/\/$/, '') === trusted.replace(/\/$/, '') && trusted;
+  };
 }

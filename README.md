@@ -43,13 +43,22 @@ keyfetch.oidcJwks("https://example.com/").then(function (results) {
 });
 ```
 
-Quick JWT verification:
+Quick JWT verification (for authentication):
 
 ```js
 var keyfetch = require('keyfetch');
 var jwt = '...';
 
-keyfetch.verify({ jwt: jwt }).then(function (decoded) {
+keyfetch.jwt.verify(jwt).then(function (decoded) {
+  console.log(decoded);
+});
+```
+
+JWT verification (for authorization):
+
+```js
+var options = { issuers: ['https://example.com/'], claims: { role: 'admin' } };
+keyfetch.jwt.verify(jwt, options).then(function (decoded) {
   console.log(decoded);
 });
 ```
@@ -74,7 +83,7 @@ keyfetch.oidcJwk(
   console.log(result.thumprint);
   console.log(result.pem);
 
-  jwt.verify(jwt, pem);
+  jwt.jwt.verify(jwt, { jwk: result.jwk });
 });
 ```
 
@@ -147,12 +156,81 @@ keyfetch.oidcJwk(id, issuerUrl)
 
 ### Verify JWT
 
+This can accept a _JWT string_ (compact JWS) or a _decoded JWT object_ (JWS).
+
+This can be used purely for verifying pure authentication tokens, as well as authorization tokens.
+
 ```js
-keyfetch.verify({ jwt: jwk, strategy: 'oidc' })
-// Promises a decoded JWT { headers, payload, signature } or fails
+keyfetch.jwt.verify(jwt, { strategy: 'oidc' }).then(function (verified) {
+  /*
+    { protected: '...'  // base64 header
+    , payload: '...'    // base64 payload
+    , signature: '...'  // base64 signature
+    , header: {...}     // decoded header
+    , claims: {...}     // decoded payload
+    }
+  */
+});
+```
+
+When used for authorization, it's important to specify which `issuers` are allowed
+(otherwise anyone can create a valid token with whatever any claims they want).
+
+If your authorization `claims` can be expressed as exact string matches, you can specify those too.
+
+```js
+keyfetch.jwt.verify(jwt, {
+  strategy: 'oidc'
+, issuers: [ 'https://example.com/' ]
+, claims: { role: 'admin', sub: 'abc', group: 'xyz' }
+}).then(function (verified) {
+
 ```
 
 * `strategy` may be `oidc` (default) , `auth0`, or a direct JWKs url.
+* `issuers` must be a list of https urls (though http is allowed for things like Docker swarm)
+* `claims` is an object with arbitrary keys (i.e. everything except for the standard `iat`, `exp`, `jti`, etc)
+* `exp` may be set to `false` if you're validating on your own (i.e. allowing time drift leeway)
+* `jwks` can be used to specify a list of allowed public key rather than fetching them (i.e. for offline unit tests)
+* `jwk` same as above, but a single key rather than a list
+
+### Decode JWT
+
+```jwt
+try {
+  console.log( keyfetch.jwt.decode(jwt) );
+} catch(e) {
+  console.error(e);
+}
+```
+
+```js
+{ protected: '...'  // base64 header
+, payload: '...'    // base64 payload
+, signature: '...'  // base64 signature
+, header: {...}     // decoded header
+, claims: {...}     // decoded payload
+```
+
+It's easier just to show the code than to explain the example.
+
+```js
+keyfetch.jwt.decode = function (jwt) {
+  // Unpack JWS from "compact" form
+  var parts = jwt.split('.');
+  var obj = {
+    protected: parts[0]
+  , payload: parts[1]
+  , signature: parts[2]
+  };
+
+  // Decode JWT properties from JWS as unordered objects
+  obj.header = JSON.parse(Buffer.from(obj.protected, 'base64'));
+  obj.claims = JSON.parse(Buffer.from(obj.payload, 'base64'));
+
+  return obj;
+};
+```
 
 ### Cache Settings
 
