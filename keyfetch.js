@@ -327,7 +327,7 @@ keyfetch.jwt.verify = function (jwt, opts) {
 keyfetch.jws = {};
 keyfetch.jws.verify = function (jws, pub) {
   var alg = 'SHA' + jws.header.alg.replace(/[^\d]+/i, '');
-  var sig = ecdsaAsn1SigToJwtSig(jws.header, jws.signature);
+  var sig = ecdsaJoseSigToAsn1Sig(jws.header, jws.signature);
   return require('crypto')
     .createVerify(alg)
     .update(jws.protected + '.' + jws.payload)
@@ -347,7 +347,7 @@ keyfetch.verify = function (opts) {
   });
 };
 
-function ecdsaAsn1SigToJwtSig(header, b64sig) {
+function ecdsaJoseSigToAsn1Sig(header, b64sig) {
   // ECDSA JWT signatures differ from "normal" ECDSA signatures
   // https://tools.ietf.org/html/rfc7518#section-3.4
   if (!/^ES/i.test(header.alg)) { return b64sig; }
