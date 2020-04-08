@@ -2,8 +2,7 @@
 
 var keyfetch = module.exports;
 
-var promisify = require("util").promisify;
-var requestAsync = promisify(require("@coolaj86/urequest"));
+var request = require("@root/request");
 var Rasha = require("rasha");
 var Eckles = require("eckles");
 var mincache = 1 * 60 * 60;
@@ -34,7 +33,7 @@ keyfetch.init = function (opts) {
 };
 keyfetch._oidc = function (iss) {
     return Promise.resolve().then(function () {
-        return requestAsync({
+        return request({
             url: normalizeIss(iss) + "/.well-known/openid-configuration",
             json: true
         }).then(function (resp) {
@@ -52,7 +51,7 @@ keyfetch._wellKnownJwks = function (iss) {
     });
 };
 keyfetch._jwks = function (iss) {
-    return requestAsync({ url: iss, json: true }).then(function (resp) {
+    return request({ url: iss, json: true }).then(function (resp) {
         return Promise.all(
             resp.body.keys.map(function (jwk) {
                 // EC keys have an x values, whereas RSA keys do not
