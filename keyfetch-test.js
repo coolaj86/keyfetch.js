@@ -25,29 +25,32 @@ keyfetch
     });
 
 /*global Promise*/
-var keypairs = require("keypairs.js");
+var keypairs = require("keypairs");
 keypairs.generate().then(function (pair) {
+    var iss = "https://example.com/";
     return Promise.all([
         keypairs
             .signJwt({
                 jwk: pair.private,
-                iss: "https://example.com/",
+                iss: iss,
                 sub: "mikey",
                 exp: "1h"
             })
             .then(function (jwt) {
                 return Promise.all([
-                    keyfetch.jwt.verify(jwt, { jwk: pair.public }).then(function (verified) {
+                    keyfetch.jwt.verify(jwt, { jwk: pair.public, iss: "*" }).then(function (verified) {
                         if (!(verified.claims && verified.claims.exp)) {
                             throw new Error("malformed decoded token");
                         }
                     }),
-                    keyfetch.jwt.verify(keyfetch.jwt.decode(jwt), { jwk: pair.public }).then(function (verified) {
-                        if (!(verified.claims && verified.claims.exp)) {
-                            throw new Error("malformed decoded token");
-                        }
-                    }),
-                    keyfetch.jwt.verify(jwt, { jwks: [pair.public] }),
+                    keyfetch.jwt
+                        .verify(keyfetch.jwt.decode(jwt), { jwk: pair.public, iss: iss })
+                        .then(function (verified) {
+                            if (!(verified.claims && verified.claims.exp)) {
+                                throw new Error("malformed decoded token");
+                            }
+                        }),
+                    keyfetch.jwt.verify(jwt, { jwks: [pair.public], issuers: [iss] }),
                     keyfetch.jwt.verify(jwt, {
                         jwk: pair.public,
                         issuers: ["https://example.com/"]
@@ -117,8 +120,18 @@ keypairs.generate().then(function (pair) {
                 exp: "1h"
             })
             .then(function (jwt) {
+                var warned = false;
+                console.warn = function () {
+                    warned = true;
+                };
                 return Promise.all([
-                    keyfetch.jwt.verify(jwt, { jwk: pair.public }),
+                    // test that the old behavior of defaulting to '*' still works
+                    keyfetch.jwt.verify(jwt, { jwk: pair.public }).then(function () {
+                        if (!warned) {
+                            throw e("should have issued security warning about allow all by default");
+                        }
+                    }),
+                    keyfetch.jwt.verify(jwt, { jwk: pair.public, issuers: ["*"] }),
                     keyfetch.jwt.verify(jwt).then(e("should have an issuer")).catch(throwIfNotExpected),
                     keyfetch.jwt
                         .verify(jwt, {

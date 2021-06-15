@@ -3,7 +3,7 @@
 var keyfetch = module.exports;
 
 var promisify = require("util").promisify;
-var requestAsync = promisify(require("@coolaj86/urequest"));
+var requestAsync = promisify(require("@root/request"));
 var Rasha = require("rasha");
 var Eckles = require("eckles");
 var mincache = 1 * 60 * 60;
@@ -197,6 +197,10 @@ keyfetch._setCache = function (iss, cacheable) {
 };
 
 function normalizeIss(iss) {
+    if (!iss) {
+        throw new Error("'iss' is not defined");
+    }
+
     // We definitely don't want false negatives stemming
     // from https://example.com vs https://example.com/
     // We also don't want to allow insecure issuers
@@ -232,7 +236,21 @@ keyfetch.jwt.verify = function (jwt, opts) {
         var exp;
         var nbf;
         var active;
-        var issuers = opts.issuers || ["*"];
+        var issuers = opts.issuers || [];
+        var err;
+        if (opts.iss) {
+            issuers.push(opts.iss);
+        }
+        if (opts.claims && opts.claims.iss) {
+            issuers.push(opts.claims.iss);
+        }
+        if (!issuers.length) {
+            err = new Error(
+                "\n[keyfetch.js] Security Warning:\nNeither of opts.issuers nor opts.iss were provided. The default behavior of setting opts.issuers = ['*'] by default - which allows any or no issuers - is deprecated and will throw an error instead in the next major version.\n"
+            );
+            console.warn(err);
+            issuers.push("*");
+        }
         var claims = opts.claims || {};
         if (!jwt || "string" === typeof jwt) {
             try {
@@ -249,7 +267,7 @@ keyfetch.jwt.verify = function (jwt, opts) {
         if (!issuers.some(isTrustedIssuer(decoded.claims.iss))) {
             throw new Error("token was issued by an untrusted issuer: '" + decoded.claims.iss + "'");
         }
-        // TODO verify claims also?
+        // Note claims.iss validates more strictly than opts.issuers (requires exact match)
         if (
             !Object.keys(claims).every(function (key) {
                 if (claims[key] === decoded.claims[key]) {

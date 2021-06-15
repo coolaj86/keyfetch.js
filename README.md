@@ -1,4 +1,4 @@
-# keyfetch
+# [keyfetch](https://git.rootprojects.org/root/keyfetch.js)
 
 Lightweight support for fetching JWKs.
 
@@ -178,15 +178,16 @@ If your authorization `claims` can be expressed as exact string matches, you can
 
 ```js
 keyfetch.jwt.verify(jwt, {
-  strategy: 'oidc'
-, issuers: [ 'https://example.com/' ]
-, claims: { role: 'admin', sub: 'abc', group: 'xyz' }
+  strategy: 'oidc',
+  issuers: [ 'https://example.com/' ],
+  //iss: 'https://example.com/',
+  claims: { role: 'admin', sub: 'abc', group: 'xyz' }
 }).then(function (verified) {
-
 ```
 
 -   `strategy` may be `oidc` (default) , `auth0`, or a direct JWKs url.
--   `issuers` must be a list of https urls (though http is allowed for things like Docker swarm)
+-   `issuers` must be a list of https urls (though http is allowed for things like Docker swarm), or '\*'
+-   `iss` is like `issuers`, but only one
 -   `claims` is an object with arbitrary keys (i.e. everything except for the standard `iat`, `exp`, `jti`, etc)
 -   `exp` may be set to `false` if you're validating on your own (i.e. allowing time drift leeway)
 -   `jwks` can be used to specify a list of allowed public key rather than fetching them (i.e. for offline unit tests)

@@ -1,36 +1,37 @@
 {
-  "name": "keyfetch",
-  "version": "1.2.1",
-  "description": "Lightweight support for fetching JWKs.",
-  "homepage": "https://git.coolaj86.com/coolaj86/keyfetch.js",
-  "main": "keyfetch.js",
-  "files": [],
-  "dependencies": {
-    "@coolaj86/urequest": "^1.3.7",
-    "eckles": "^1.4.1",
-    "rasha": "^1.2.4"
-  },
-  "devDependencies": {},
-  "scripts": {
-    "test": "node keyfetch-test.js"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://git.coolaj86.com/coolaj86/keyfetch.js.git"
-  },
-  "keywords": [
-    "jwks",
-    "jwk",
-    "jwt",
-    "auth0",
-    "pem",
-    "RSA",
-    "EC",
-    "ECDSA",
-    "OIDC",
-    "well-known"
-  ],
-  "author": "AJ ONeal <solderjs@gmail.com> (https://coolaj86.com/)",
-  "license": "MPL-2.0"
+    "name": "keyfetch",
+    "version": "1.2.1",
+    "description": "Lightweight support for fetching JWKs.",
+    "homepage": "https://git.rootprojects.org/root/keyfetch.js",
+    "main": "keyfetch.js",
+    "files": [],
+    "dependencies": {
+        "@root/request": "^1.7.0",
+        "eckles": "^1.4.1",
+        "rasha": "^1.2.4"
+    },
+    "devDependencies": {
+        "keypairs": "^1.2.14"
+    },
+    "scripts": {
+        "test": "node keyfetch-test.js"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://git.rootprojects.org/root/keyfetch.js.git"
+    },
+    "keywords": [
+        "jwks",
+        "jwk",
+        "jwt",
+        "auth0",
+        "pem",
+        "RSA",
+        "EC",
+        "ECDSA",
+        "OIDC",
+        "well-known"
+    ],
+    "author": "AJ ONeal <coolaj86@gmail.com> (https://coolaj86.com/)",
+    "license": "MPL-2.0"
 }
-
