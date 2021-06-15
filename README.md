@@ -171,8 +171,8 @@ keyfetch.jwt.verify(jwt, { strategy: "oidc" }).then(function (verified) {
 });
 ```
 
-When used for authorization, it's important to specify which `issuers` are allowed
-(otherwise anyone can create a valid token with whatever any claims they want).
+When used for authorization, it's important to specify a limited set of trusted `issuers`. \
+When using for federated authentication you may set `issuers = ["*"]` - but **DO NOT** trust claims such as `email` and `email_verified`.
 
 If your authorization `claims` can be expressed as exact string matches, you can specify those too.
 

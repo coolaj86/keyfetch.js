@@ -11,7 +11,6 @@ var maxcache = 3 * 24 * 60 * 60;
 var staletime = 15 * 60;
 var keyCache = {};
 
-/*global Promise*/
 function checkMinDefaultMax(opts, key, n, d, x) {
     var i = opts[key];
     if (!i && 0 !== i) {
@@ -32,85 +31,70 @@ keyfetch.init = function (opts) {
     maxcache = checkMinDefaultMax(opts, "maxcache", 1 * 60 * 60, maxcache, 31 * 24 * 60 * 60);
     staletime = checkMinDefaultMax(opts, "staletime", 1 * 60, staletime, 31 * 24 * 60 * 60);
 };
-keyfetch._oidc = function (iss) {
-    return Promise.resolve().then(function () {
-        return requestAsync({
-            url: normalizeIss(iss) + "/.well-known/openid-configuration",
-            json: true
-        }).then(function (resp) {
-            var oidcConf = resp.body;
-            if (!oidcConf.jwks_uri) {
-                throw new Error("Failed to retrieve openid configuration");
-            }
-            return oidcConf;
-        });
+keyfetch._oidc = async function (iss) {
+    var resp = await requestAsync({
+        url: normalizeIss(iss) + "/.well-known/openid-configuration",
+        json: true
     });
+    var oidcConf = resp.body;
+    if (!oidcConf.jwks_uri) {
+        throw new Error("Failed to retrieve openid configuration");
+    }
+    return oidcConf;
 };
-keyfetch._wellKnownJwks = function (iss) {
-    return Promise.resolve().then(function () {
-        return keyfetch._jwks(normalizeIss(iss) + "/.well-known/jwks.json");
-    });
+keyfetch._wellKnownJwks = async function (iss) {
+    return keyfetch._jwks(normalizeIss(iss) + "/.well-known/jwks.json");
 };
-keyfetch._jwks = function (iss) {
-    return requestAsync({ url: iss, json: true }).then(function (resp) {
-        return Promise.all(
-            resp.body.keys.map(function (jwk) {
-                // EC keys have an x values, whereas RSA keys do not
-                var Keypairs = jwk.x ? Eckles : Rasha;
-                return Keypairs.thumbprint({ jwk: jwk }).then(function (thumbprint) {
-                    return Keypairs.export({ jwk: jwk }).then(function (pem) {
-                        var cacheable = {
-                            jwk: jwk,
-                            thumbprint: thumbprint,
-                            pem: pem
-                        };
-                        return cacheable;
-                    });
-                });
-            })
-        );
-    });
+keyfetch._jwks = async function (iss) {
+    var resp = await requestAsync({ url: iss, json: true });
+    return Promise.all(
+        resp.body.keys.map(async function (jwk) {
+            // EC keys have an x values, whereas RSA keys do not
+            var Keypairs = jwk.x ? Eckles : Rasha;
+            var thumbprint = await Keypairs.thumbprint({ jwk: jwk });
+            var pem = await Keypairs.export({ jwk: jwk });
+            var cacheable = {
+                jwk: jwk,
+                thumbprint: thumbprint,
+                pem: pem
+            };
+            return cacheable;
+        })
+    );
 };
-keyfetch.jwks = function (jwkUrl) {
+keyfetch.jwks = async function (jwkUrl) {
     // TODO DRY up a bit
-    return keyfetch._jwks(jwkUrl).then(function (results) {
-        return Promise.all(
-            results.map(function (result) {
-                return keyfetch._setCache(result.jwk.iss || jwkUrl, result);
-            })
-        ).then(function () {
-            // cacheable -> hit (keep original externally immutable)
-            return JSON.parse(JSON.stringify(results));
-        });
-    });
+    var results = await keyfetch._jwks(jwkUrl);
+    await Promise.all(
+        results.map(async function (result) {
+            return keyfetch._setCache(result.jwk.iss || jwkUrl, result);
+        })
+    );
+    // cacheable -> hit (keep original externally immutable)
+    return JSON.parse(JSON.stringify(results));
 };
-keyfetch.wellKnownJwks = function (iss) {
+keyfetch.wellKnownJwks = async function (iss) {
     // TODO DRY up a bit
-    return keyfetch._wellKnownJwks(iss).then(function (results) {
-        return Promise.all(
-            results.map(function (result) {
-                return keyfetch._setCache(result.jwk.iss || iss, result);
-            })
-        ).then(function () {
-            // result -> hit (keep original externally immutable)
-            return JSON.parse(JSON.stringify(results));
-        });
-    });
+    var results = await keyfetch._wellKnownJwks(iss);
+    await Promise.all(
+        results.map(async function (result) {
+            return keyfetch._setCache(result.jwk.iss || iss, result);
+        })
+    );
+    // result -> hit (keep original externally immutable)
+    return JSON.parse(JSON.stringify(results));
 };
-keyfetch.oidcJwks = function (iss) {
-    return keyfetch._oidc(iss).then(function (oidcConf) {
-        // TODO DRY up a bit
-        return keyfetch._jwks(oidcConf.jwks_uri).then(function (results) {
-            return Promise.all(
-                results.map(function (result) {
-                    return keyfetch._setCache(result.jwk.iss || iss, result);
-                })
-            ).then(function () {
-                // result -> hit (keep original externally immutable)
-                return JSON.parse(JSON.stringify(results));
-            });
-        });
-    });
+keyfetch.oidcJwks = async function (iss) {
+    var oidcConf = await keyfetch._oidc(iss);
+    // TODO DRY up a bit
+    var results = await keyfetch._jwks(oidcConf.jwks_uri);
+    await Promise.all(
+        results.map(async function (result) {
+            return keyfetch._setCache(result.jwk.iss || iss, result);
+        })
+    );
+    // result -> hit (keep original externally immutable)
+    return JSON.parse(JSON.stringify(results));
 };
 function checkId(id) {
     return function (results) {
@@ -125,54 +109,49 @@ function checkId(id) {
         return result;
     };
 }
-keyfetch.oidcJwk = function (id, iss) {
-    return keyfetch._checkCache(id, iss).then(function (hit) {
-        if (hit) {
-            return hit;
-        }
-        return keyfetch.oidcJwks(iss).then(checkId(id));
-    });
+keyfetch.oidcJwk = async function (id, iss) {
+    var hit = await keyfetch._checkCache(id, iss);
+    if (hit) {
+        return hit;
+    }
+    return keyfetch.oidcJwks(iss).then(checkId(id));
 };
-keyfetch.wellKnownJwk = function (id, iss) {
-    return keyfetch._checkCache(id, iss).then(function (hit) {
-        if (hit) {
-            return hit;
-        }
-        return keyfetch.wellKnownJwks(iss).then(checkId(id));
-    });
+keyfetch.wellKnownJwk = async function (id, iss) {
+    var hit = await keyfetch._checkCache(id, iss);
+    if (hit) {
+        return hit;
+    }
+    return keyfetch.wellKnownJwks(iss).then(checkId(id));
 };
-keyfetch.jwk = function (id, jwksUrl) {
-    return keyfetch._checkCache(id, jwksUrl).then(function (hit) {
-        if (hit) {
-            return hit;
-        }
-        return keyfetch.jwks(jwksUrl).then(checkId(id));
-    });
+keyfetch.jwk = async function (id, jwksUrl) {
+    var hit = await keyfetch._checkCache(id, jwksUrl);
+    if (hit) {
+        return hit;
+    }
+    return keyfetch.jwks(jwksUrl).then(checkId(id));
 };
-keyfetch._checkCache = function (id, iss) {
-    return Promise.resolve().then(function () {
-        // We cache by thumbprint and (kid + '@' + iss),
-        // so it's safe to check without appending the issuer
-        var hit = keyCache[id];
-        if (!hit) {
-            hit = keyCache[id + "@" + normalizeIss(iss)];
-        }
-        if (!hit) {
-            return null;
-        }
-
-        var now = Math.round(Date.now() / 1000);
-        var left = hit.expiresAt - now;
-        // not guarding number checks since we know that we
-        // set 'now' and 'expiresAt' correctly elsewhere
-        if (left > staletime) {
-            return JSON.parse(JSON.stringify(hit));
-        }
-        if (left > 0) {
-            return JSON.parse(JSON.stringify(hit));
-        }
+keyfetch._checkCache = async function (id, iss) {
+    // We cache by thumbprint and (kid + '@' + iss),
+    // so it's safe to check without appending the issuer
+    var hit = keyCache[id];
+    if (!hit) {
+        hit = keyCache[id + "@" + normalizeIss(iss)];
+    }
+    if (!hit) {
         return null;
-    });
+    }
+
+    var now = Math.round(Date.now() / 1000);
+    var left = hit.expiresAt - now;
+    // not guarding number checks since we know that we
+    // set 'now' and 'expiresAt' correctly elsewhere
+    if (left > staletime) {
+        return JSON.parse(JSON.stringify(hit));
+    }
+    if (left > 0) {
+        return JSON.parse(JSON.stringify(hit));
+    }
+    return null;
 };
 keyfetch._setCache = function (iss, cacheable) {
     // force into a number
@@ -227,143 +206,134 @@ keyfetch.jwt.decode = function (jwt) {
     obj.claims = JSON.parse(Buffer.from(obj.payload, "base64"));
     return obj;
 };
-keyfetch.jwt.verify = function (jwt, opts) {
+keyfetch.jwt.verify = async function (jwt, opts) {
     if (!opts) {
         opts = {};
     }
-    return Promise.resolve().then(function () {
-        var decoded;
-        var exp;
-        var nbf;
-        var active;
-        var issuers = opts.issuers || [];
-        var err;
-        if (opts.iss) {
-            issuers.push(opts.iss);
-        }
-        if (opts.claims && opts.claims.iss) {
-            issuers.push(opts.claims.iss);
-        }
-        if (!issuers.length) {
-            err = new Error(
-                "\n[keyfetch.js] Security Warning:\nNeither of opts.issuers nor opts.iss were provided. The default behavior of setting opts.issuers = ['*'] by default - which allows any or no issuers - is deprecated and will throw an error instead in the next major version.\n"
-            );
-            console.warn(err);
-            issuers.push("*");
-        }
-        var claims = opts.claims || {};
-        if (!jwt || "string" === typeof jwt) {
-            try {
-                decoded = keyfetch.jwt.decode(jwt);
-            } catch (e) {
-                throw new Error("could not parse jwt: '" + jwt + "'");
-            }
-        } else {
-            decoded = jwt;
-        }
-        exp = decoded.claims.exp;
-        nbf = decoded.claims.nbf;
 
-        if (!issuers.some(isTrustedIssuer(decoded.claims.iss))) {
-            throw new Error("token was issued by an untrusted issuer: '" + decoded.claims.iss + "'");
+    var decoded;
+    var exp;
+    var nbf;
+    var active;
+    var issuers = opts.issuers || [];
+    if (opts.iss) {
+        issuers.push(opts.iss);
+    }
+    if (opts.claims && opts.claims.iss) {
+        issuers.push(opts.claims.iss);
+    }
+    if (!issuers.length) {
+        throw new Error(
+            "[keyfetch.js] Security Error: Neither of opts.issuers nor opts.iss were provided. If you would like to bypass issuer verification (i.e. for federated authn) you must explicitly set opts.issuers = ['*']. Otherwise set a value such as https://accounts.google.com/"
+        );
+    }
+    var claims = opts.claims || {};
+    if (!jwt || "string" === typeof jwt) {
+        try {
+            decoded = keyfetch.jwt.decode(jwt);
+        } catch (e) {
+            throw new Error("could not parse jwt: '" + jwt + "'");
         }
-        // Note claims.iss validates more strictly than opts.issuers (requires exact match)
+    } else {
+        decoded = jwt;
+    }
+    exp = decoded.claims.exp;
+    nbf = decoded.claims.nbf;
+
+    if (!issuers.some(isTrustedIssuer(decoded.claims.iss))) {
+        throw new Error("token was issued by an untrusted issuer: '" + decoded.claims.iss + "'");
+    }
+    // Note claims.iss validates more strictly than opts.issuers (requires exact match)
+    if (
+        !Object.keys(claims).every(function (key) {
+            if (claims[key] === decoded.claims[key]) {
+                return true;
+            }
+        })
+    ) {
+        throw new Error("token did not match on one or more authorization claims: '" + Object.keys(claims) + "'");
+    }
+
+    active = (opts.exp || 0) + parseInt(exp, 10) - Date.now() / 1000 > 0;
+    if (!active) {
+        // expiration was on the token or, if not, such a token is not allowed
+        if (exp || false !== opts.exp) {
+            throw new Error("token's 'exp' has passed or could not parsed: '" + exp + "'");
+        }
+    }
+    if (nbf) {
+        active = parseInt(nbf, 10) - Date.now() / 1000 <= 0;
+        if (!active) {
+            throw new Error("token's 'nbf' has not been reached or could not parsed: '" + nbf + "'");
+        }
+    }
+    if (opts.jwks || opts.jwk) {
+        return overrideLookup(opts.jwks || [opts.jwk]);
+    }
+
+    var kid = decoded.header.kid;
+    var iss;
+    var fetcher;
+    var fetchOne;
+    if (!opts.strategy || "oidc" === opts.strategy) {
+        iss = decoded.claims.iss;
+        fetcher = keyfetch.oidcJwks;
+        fetchOne = keyfetch.oidcJwk;
+    } else if ("auth0" === opts.strategy || "well-known" === opts.strategy) {
+        iss = decoded.claims.iss;
+        fetcher = keyfetch.wellKnownJwks;
+        fetchOne = keyfetch.wellKnownJwk;
+    } else {
+        iss = opts.strategy;
+        fetcher = keyfetch.jwks;
+        fetchOne = keyfetch.jwk;
+    }
+
+    if (kid) {
+        return fetchOne(kid, iss).then(verifyOne); //.catch(fetchAny);
+    }
+    return fetcher(iss).then(verifyAny);
+
+    function verifyOne(hit) {
+        if (true === keyfetch.jws.verify(decoded, hit)) {
+            return decoded;
+        }
+        throw new Error("token signature verification was unsuccessful");
+    }
+
+    function verifyAny(hits) {
         if (
-            !Object.keys(claims).every(function (key) {
-                if (claims[key] === decoded.claims[key]) {
-                    return true;
+            hits.some(function (hit) {
+                if (kid) {
+                    if (kid !== hit.jwk.kid && kid !== hit.thumbprint) {
+                        return;
+                    }
+                    if (true === keyfetch.jws.verify(decoded, hit)) {
+                        return true;
+                    }
+                    throw new Error("token signature verification was unsuccessful");
+                } else {
+                    if (true === keyfetch.jws.verify(decoded, hit)) {
+                        return true;
+                    }
                 }
             })
         ) {
-            throw new Error("token did not match on one or more authorization claims: '" + Object.keys(claims) + "'");
+            return decoded;
         }
+        throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
+    }
 
-        active = (opts.exp || 0) + parseInt(exp, 10) - Date.now() / 1000 > 0;
-        if (!active) {
-            // expiration was on the token or, if not, such a token is not allowed
-            if (exp || false !== opts.exp) {
-                throw new Error("token's 'exp' has passed or could not parsed: '" + exp + "'");
-            }
-        }
-        if (nbf) {
-            active = parseInt(nbf, 10) - Date.now() / 1000 <= 0;
-            if (!active) {
-                throw new Error("token's 'nbf' has not been reached or could not parsed: '" + nbf + "'");
-            }
-        }
-        if (opts.jwks || opts.jwk) {
-            return overrideLookup(opts.jwks || [opts.jwk]);
-        }
-
-        var kid = decoded.header.kid;
-        var iss;
-        var fetcher;
-        var fetchOne;
-        if (!opts.strategy || "oidc" === opts.strategy) {
-            iss = decoded.claims.iss;
-            fetcher = keyfetch.oidcJwks;
-            fetchOne = keyfetch.oidcJwk;
-        } else if ("auth0" === opts.strategy || "well-known" === opts.strategy) {
-            iss = decoded.claims.iss;
-            fetcher = keyfetch.wellKnownJwks;
-            fetchOne = keyfetch.wellKnownJwk;
-        } else {
-            iss = opts.strategy;
-            fetcher = keyfetch.jwks;
-            fetchOne = keyfetch.jwk;
-        }
-
-        var p;
-        if (kid) {
-            p = fetchOne(kid, iss).then(verifyOne); //.catch(fetchAny);
-        } else {
-            p = fetcher(iss).then(verifyAny);
-        }
-        return p;
-
-        function verifyOne(hit) {
-            if (true === keyfetch.jws.verify(decoded, hit)) {
-                return decoded;
-            }
-            throw new Error("token signature verification was unsuccessful");
-        }
-
-        function verifyAny(hits) {
-            if (
-                hits.some(function (hit) {
-                    if (kid) {
-                        if (kid !== hit.jwk.kid && kid !== hit.thumbprint) {
-                            return;
-                        }
-                        if (true === keyfetch.jws.verify(decoded, hit)) {
-                            return true;
-                        }
-                        throw new Error("token signature verification was unsuccessful");
-                    } else {
-                        if (true === keyfetch.jws.verify(decoded, hit)) {
-                            return true;
-                        }
-                    }
-                })
-            ) {
-                return decoded;
-            }
-            throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
-        }
-
-        function overrideLookup(jwks) {
-            return Promise.all(
-                jwks.map(function (jwk) {
-                    var Keypairs = jwk.x ? Eckles : Rasha;
-                    return Keypairs.export({ jwk: jwk }).then(function (pem) {
-                        return Keypairs.thumbprint({ jwk: jwk }).then(function (thumb) {
-                            return { jwk: jwk, pem: pem, thumbprint: thumb };
-                        });
-                    });
-                })
-            ).then(verifyAny);
-        }
-    });
+    function overrideLookup(jwks) {
+        return Promise.all(
+            jwks.map(async function (jwk) {
+                var Keypairs = jwk.x ? Eckles : Rasha;
+                var pem = await Keypairs.export({ jwk: jwk });
+                var thumb = await Keypairs.thumbprint({ jwk: jwk });
+                return { jwk: jwk, pem: pem, thumbprint: thumb };
+            })
+        ).then(verifyAny);
+    }
 };
 keyfetch.jws = {};
 keyfetch.jws.verify = function (jws, pub) {
@@ -380,11 +350,10 @@ keyfetch._decode = function (jwt) {
     var obj = keyfetch.jwt.decode(jwt);
     return { header: obj.header, payload: obj.claims, signature: obj.signature };
 };
-keyfetch.verify = function (opts) {
+keyfetch.verify = async function (opts) {
     var jwt = opts.jwt;
-    return keyfetch.jwt.verify(jwt, opts).then(function (obj) {
-        return { header: obj.header, payload: obj.claims, signature: obj.signature };
-    });
+    var obj = await keyfetch.jwt.verify(jwt, opts);
+    return { header: obj.header, payload: obj.claims, signature: obj.signature };
 };
 
 function ecdsaJoseSigToAsn1Sig(header, b64sig) {

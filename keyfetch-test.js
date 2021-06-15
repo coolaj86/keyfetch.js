@@ -120,17 +120,12 @@ keypairs.generate().then(function (pair) {
                 exp: "1h"
             })
             .then(function (jwt) {
-                var warned = false;
-                console.warn = function () {
-                    warned = true;
-                };
                 return Promise.all([
                     // test that the old behavior of defaulting to '*' still works
-                    keyfetch.jwt.verify(jwt, { jwk: pair.public }).then(function () {
-                        if (!warned) {
-                            throw e("should have issued security warning about allow all by default");
-                        }
-                    }),
+                    keyfetch.jwt
+                        .verify(jwt, { jwk: pair.public })
+                        .then(e("should have issued security warning about allow all by default"))
+                        .catch(throwIfNotExpected),
                     keyfetch.jwt.verify(jwt, { jwk: pair.public, issuers: ["*"] }),
                     keyfetch.jwt.verify(jwt).then(e("should have an issuer")).catch(throwIfNotExpected),
                     keyfetch.jwt
