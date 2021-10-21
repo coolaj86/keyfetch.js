@@ -4,9 +4,11 @@
     "description": "Lightweight support for fetching JWKs.",
     "homepage": "https://git.rootprojects.org/root/keyfetch.js",
     "main": "keyfetch.js",
-    "files": [],
+    "files": [
+        "lib"
+    ],
     "dependencies": {
-        "@root/request": "^1.7.0",
+        "@root/request": "^1.8.0",
         "eckles": "^1.4.1",
         "rasha": "^1.2.4"
     },

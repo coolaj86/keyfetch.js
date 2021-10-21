@@ -2,14 +2,28 @@
 
 var keyfetch = module.exports;
 
-var promisify = require("util").promisify;
-var requestAsync = promisify(require("@root/request"));
+var request = require("@root/request").defaults({
+    userAgent: "keyfetch/v2.1.0"
+});
 var Rasha = require("rasha");
 var Eckles = require("eckles");
 var mincache = 1 * 60 * 60;
 var maxcache = 3 * 24 * 60 * 60;
 var staletime = 15 * 60;
 var keyCache = {};
+
+var Errors = require("./lib/errors.js");
+
+async function requestAsync(req) {
+    var resp = await request(req).catch(Errors.BAD_GATEWAY);
+
+    // differentiate potentially temporary server errors from 404
+    if (!resp.ok && (resp.statusCode >= 500 || resp.statusCode < 200)) {
+        throw Errors.BAD_GATEWAY();
+    }
+
+    return resp;
+}
 
 function checkMinDefaultMax(opts, key, n, d, x) {
     var i = opts[key];
@@ -19,7 +33,7 @@ function checkMinDefaultMax(opts, key, n, d, x) {
     if (i >= n && i >= x) {
         return parseInt(i, 10);
     } else {
-        throw new Error("opts." + key + " should be at least " + n + " and at most " + x + ", not " + i);
+        throw Errors.DEVELOPER_ERROR("opts." + key + " should be at least " + n + " and at most " + x + ", not " + i);
     }
 }
 
@@ -36,9 +50,10 @@ keyfetch._oidc = async function (iss) {
         url: normalizeIss(iss) + "/.well-known/openid-configuration",
         json: true
     });
+
     var oidcConf = resp.body;
     if (!oidcConf.jwks_uri) {
-        throw new Error("Failed to retrieve openid configuration");
+        throw Errors.OIDC_CONFIG_NOT_FOUND();
     }
     return oidcConf;
 };
@@ -47,6 +62,7 @@ keyfetch._wellKnownJwks = async function (iss) {
 };
 keyfetch._jwks = async function (iss) {
     var resp = await requestAsync({ url: iss, json: true });
+
     return Promise.all(
         resp.body.keys.map(async function (jwk) {
             // EC keys have an x values, whereas RSA keys do not
@@ -104,7 +120,7 @@ function checkId(id) {
         })[0];
 
         if (!result) {
-            throw new Error("No JWK found by kid or thumbprint '" + id + "'");
+            throw Errors.JWK_NOT_FOUND(id);
         }
         return result;
     };
@@ -177,7 +193,7 @@ keyfetch._setCache = function (iss, cacheable) {
 
 function normalizeIss(iss) {
     if (!iss) {
-        throw new Error("'iss' is not defined");
+        throw Errors.TOKEN_NO_ISSUER();
     }
 
     // We definitely don't want false negatives stemming
@@ -185,26 +201,26 @@ function normalizeIss(iss) {
     // We also don't want to allow insecure issuers
     if (/^http:/.test(iss) && !process.env.KEYFETCH_ALLOW_INSECURE_HTTP) {
         // note, we wrap some things in promises just so we can throw here
-        throw new Error(
-            "'" + iss + "' is NOT secure. Set env 'KEYFETCH_ALLOW_INSECURE_HTTP=true' to allow for testing."
-        );
+        throw Errors.INSECURE_ISSUER(iss);
     }
     return iss.replace(/\/$/, "");
 }
 
 keyfetch.jwt = {};
 keyfetch.jwt.decode = function (jwt) {
-    var parts = jwt.split(".");
-    // JWS
-    var obj = {
-        protected: parts[0],
-        payload: parts[1],
-        signature: parts[2]
-    };
-    // JWT
-    obj.header = JSON.parse(Buffer.from(obj.protected, "base64"));
-    obj.claims = JSON.parse(Buffer.from(obj.payload, "base64"));
-    return obj;
+    try {
+        var parts = jwt.split(".");
+        // JWS
+        var obj = { protected: parts[0], payload: parts[1], signature: parts[2] };
+        // JWT
+        obj.header = JSON.parse(Buffer.from(obj.protected, "base64"));
+        obj.claims = JSON.parse(Buffer.from(obj.payload, "base64"));
+        return obj;
+    } catch (e) {
+        var err = Errors.TOKEN_PARSE_ERROR(jwt);
+        err.details = e.message;
+        throw err;
+    }
 };
 keyfetch.jwt.verify = async function (jwt, opts) {
     if (!opts) {
@@ -215,6 +231,8 @@ keyfetch.jwt.verify = async function (jwt, opts) {
     var exp;
     var nbf;
     var active;
+    var now;
+    var then;
     var issuers = opts.issuers || [];
     if (opts.iss) {
         issuers.push(opts.iss);
@@ -223,25 +241,23 @@ keyfetch.jwt.verify = async function (jwt, opts) {
         issuers.push(opts.claims.iss);
     }
     if (!issuers.length) {
-        throw new Error(
-            "[keyfetch.js] Security Error: Neither of opts.issuers nor opts.iss were provided. If you would like to bypass issuer verification (i.e. for federated authn) you must explicitly set opts.issuers = ['*']. Otherwise set a value such as https://accounts.google.com/"
-        );
+        if (!(opts.jwk || opts.jwks)) {
+            throw Errors.DEVELOPER_ERROR(
+                "[keyfetch.js] Security Error: Neither of opts.issuers nor opts.iss were provided. If you would like to bypass issuer verification (i.e. for federated authn) you must explicitly set opts.issuers = ['*']. Otherwise set a value such as https://accounts.google.com/"
+            );
+        }
     }
     var claims = opts.claims || {};
     if (!jwt || "string" === typeof jwt) {
-        try {
-            decoded = keyfetch.jwt.decode(jwt);
-        } catch (e) {
-            throw new Error("could not parse jwt: '" + jwt + "'");
-        }
+        decoded = keyfetch.jwt.decode(jwt);
     } else {
         decoded = jwt;
     }
-    exp = decoded.claims.exp;
-    nbf = decoded.claims.nbf;
 
-    if (!issuers.some(isTrustedIssuer(decoded.claims.iss))) {
-        throw new Error("token was issued by an untrusted issuer: '" + decoded.claims.iss + "'");
+    if (!decoded.claims.iss || !issuers.some(isTrustedIssuer(decoded.claims.iss))) {
+        if (!(opts.jwk || opts.jwks)) {
+            throw Errors.ISSUER_NOT_TRUSTED(decoded.claims.iss || "");
+        }
     }
     // Note claims.iss validates more strictly than opts.issuers (requires exact match)
     if (
@@ -251,20 +267,26 @@ keyfetch.jwt.verify = async function (jwt, opts) {
             }
         })
     ) {
-        throw new Error("token did not match on one or more authorization claims: '" + Object.keys(claims) + "'");
+        throw Errors.CLAIMS_MISMATCH(Object.keys(claims));
     }
 
-    active = (opts.exp || 0) + parseInt(exp, 10) - Date.now() / 1000 > 0;
-    if (!active) {
+    exp = decoded.claims.exp;
+    if (exp && false !== opts.exp) {
+        now = Date.now();
+        // TODO document that opts.exp can be used as leeway? Or introduce opts.leeway?
+        then = (opts.exp || 0) + parseInt(exp, 10);
+        active = then - now / 1000 > 0;
         // expiration was on the token or, if not, such a token is not allowed
-        if (exp || false !== opts.exp) {
-            throw new Error("token's 'exp' has passed or could not parsed: '" + exp + "'");
+        if (!active) {
+            throw Errors.TOKEN_EXPIRED(exp);
         }
     }
+
+    nbf = decoded.claims.nbf;
     if (nbf) {
         active = parseInt(nbf, 10) - Date.now() / 1000 <= 0;
         if (!active) {
-            throw new Error("token's 'nbf' has not been reached or could not parsed: '" + nbf + "'");
+            throw Errors.TOKEN_INACTIVE(nbf);
         }
     }
     if (opts.jwks || opts.jwk) {
@@ -298,7 +320,7 @@ keyfetch.jwt.verify = async function (jwt, opts) {
         if (true === keyfetch.jws.verify(decoded, hit)) {
             return decoded;
         }
-        throw new Error("token signature verification was unsuccessful");
+        throw Errors.TOKEN_INVALID_SIGNATURE();
     }
 
     function verifyAny(hits) {
@@ -311,7 +333,7 @@ keyfetch.jwt.verify = async function (jwt, opts) {
                     if (true === keyfetch.jws.verify(decoded, hit)) {
                         return true;
                     }
-                    throw new Error("token signature verification was unsuccessful");
+                    throw Errors.TOKEN_INVALID_SIGNATURE();
                 } else {
                     if (true === keyfetch.jws.verify(decoded, hit)) {
                         return true;
@@ -321,7 +343,7 @@ keyfetch.jwt.verify = async function (jwt, opts) {
         ) {
             return decoded;
         }
-        throw new Error("Retrieved a list of keys, but none of them matched the 'kid' (key id) of the token.");
+        throw Errors.TOKEN_UNKNOWN_SIGNER();
     }
 
     function overrideLookup(jwks) {
