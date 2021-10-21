@@ -279,22 +279,21 @@ SemVer Compatibility:
 -   `message` is **NOT** included in the semver compatibility guarantee (we intend to make them more client-friendly), neither is `detail` at this time (but it will be once we decide on what it should be).
 -   `details` may be added to, but not subtracted from
 
-| Hint                | Code            | Status | Message (truncated)                              |
-| ------------------- | --------------- | ------ | ------------------------------------------------ |
-| (developer error)   | DEVELOPER_ERROR | 500    | test...                                          |
-| (bad gateway)       | BAD_GATEWAY     | 502    | The token could not be verified because our s... |
-| (insecure issuer)   | MALFORMED_JWT   | 400    | The token could not be verified because our s... |
-| (parse error)       | MALFORMED_JWT   | 400    | The auth token is malformed....                  |
-| (no issuer)         | MALFORMED_JWT   | 400    | The token could not be verified because it do... |
-| (malformed exp)     | MALFORMED_JWT   | 400    | The auth token could not be verified because ... |
-| (expired)           | INVALID_JWT     | 401    | The auth token is expired. To try again, go t... |
-| (inactive)          | INVALID_JWT     | 401    | The auth token isn't valid yet. It's activati... |
-| (bad signature)     | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
-| (jwk not found old) | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
-| (jwk not found)     | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
-| (no jwkws uri)      | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
-| (unknown issuer)    | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
-| (failed claims)     | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
+| Hint              | Code          | Status | Message (truncated)                                    |
+| ----------------- | ------------- | ------ | ------------------------------------------------------ |
+| bad gateway       | BAD_GATEWAY   | 502    | The auth token could not be verified because our se... |
+| insecure issuer   | MALFORMED_JWT | 400    | The auth token could not be verified because our se... |
+| parse error       | MALFORMED_JWT | 400    | The auth token could not be verified because it is ... |
+| no issuer         | MALFORMED_JWT | 400    | The auth token could not be verified because it doe... |
+| malformed exp     | MALFORMED_JWT | 400    | The auth token could not be verified because it's e... |
+| expired           | INVALID_JWT   | 401    | The auth token is expired. To try again, go to the ... |
+| inactive          | INVALID_JWT   | 401    | The auth token isn't valid yet. It's activation dat... |
+| bad signature     | INVALID_JWT   | 401    | The auth token did not pass verification because it... |
+| jwk not found old | INVALID_JWT   | 401    | The auth token did not pass verification because ou... |
+| jwk not found     | INVALID_JWT   | 401    | The auth token did not pass verification because ou... |
+| no jwkws uri      | INVALID_JWT   | 401    | The auth token did not pass verification because it... |
+| unknown issuer    | INVALID_JWT   | 401    | The auth token did not pass verification because it... |
+| failed claims     | INVALID_JWT   | 401    | The auth token did not pass verification because it... |
 
 # Change Log
 
