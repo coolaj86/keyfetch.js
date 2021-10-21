@@ -19,7 +19,7 @@ async function requestAsync(req) {
 
     // differentiate potentially temporary server errors from 404
     if (!resp.ok && (resp.statusCode >= 500 || resp.statusCode < 200)) {
-        throw Errors.BAD_GATEWAY();
+        throw Errors.BAD_GATEWAY({ response: resp });
     }
 
     return resp;
@@ -37,6 +37,8 @@ function checkMinDefaultMax(opts, key, n, d, x) {
     }
 }
 
+keyfetch._errors = Errors;
+
 keyfetch._clear = function () {
     keyCache = {};
 };
@@ -46,14 +48,15 @@ keyfetch.init = function (opts) {
     staletime = checkMinDefaultMax(opts, "staletime", 1 * 60, staletime, 31 * 24 * 60 * 60);
 };
 keyfetch._oidc = async function (iss) {
+    var url = normalizeIss(iss) + "/.well-known/openid-configuration";
     var resp = await requestAsync({
-        url: normalizeIss(iss) + "/.well-known/openid-configuration",
+        url: url,
         json: true
     });
 
     var oidcConf = resp.body;
     if (!oidcConf.jwks_uri) {
-        throw Errors.OIDC_CONFIG_NOT_FOUND();
+        throw Errors.NO_JWKS_URI(url);
     }
     return oidcConf;
 };
@@ -193,7 +196,7 @@ keyfetch._setCache = function (iss, cacheable) {
 
 function normalizeIss(iss) {
     if (!iss) {
-        throw Errors.TOKEN_NO_ISSUER();
+        throw Errors.NO_ISSUER();
     }
 
     // We definitely don't want false negatives stemming
@@ -217,7 +220,7 @@ keyfetch.jwt.decode = function (jwt) {
         obj.claims = JSON.parse(Buffer.from(obj.payload, "base64"));
         return obj;
     } catch (e) {
-        var err = Errors.TOKEN_PARSE_ERROR(jwt);
+        var err = Errors.PARSE_ERROR(jwt);
         err.details = e.message;
         throw err;
     }
@@ -227,7 +230,7 @@ keyfetch.jwt.verify = async function (jwt, opts) {
         opts = {};
     }
 
-    var decoded;
+    var jws;
     var exp;
     var nbf;
     var active;
@@ -249,60 +252,68 @@ keyfetch.jwt.verify = async function (jwt, opts) {
     }
     var claims = opts.claims || {};
     if (!jwt || "string" === typeof jwt) {
-        decoded = keyfetch.jwt.decode(jwt);
+        jws = keyfetch.jwt.decode(jwt);
     } else {
-        decoded = jwt;
+        jws = jwt;
     }
 
-    if (!decoded.claims.iss || !issuers.some(isTrustedIssuer(decoded.claims.iss))) {
+    if (!jws.claims.iss || !issuers.some(isTrustedIssuer(jws.claims.iss))) {
         if (!(opts.jwk || opts.jwks)) {
-            throw Errors.ISSUER_NOT_TRUSTED(decoded.claims.iss || "");
+            throw Errors.UNKNOWN_ISSUER(jws.claims.iss || "");
         }
     }
     // Note claims.iss validates more strictly than opts.issuers (requires exact match)
-    if (
-        !Object.keys(claims).every(function (key) {
-            if (claims[key] === decoded.claims[key]) {
+    var failedClaims = Object.keys(claims)
+        .filter(function (key) {
+            if (claims[key] !== jws.claims[key]) {
                 return true;
             }
         })
-    ) {
-        throw Errors.CLAIMS_MISMATCH(Object.keys(claims));
+        .map(function (key) {
+            return "jwt.claims." + key + " = " + JSON.stringify(jws.claims[key]);
+        });
+    if (failedClaims.length) {
+        throw Errors.FAILED_CLAIMS(failedClaims, Object.keys(claims));
     }
 
-    exp = decoded.claims.exp;
+    exp = jws.claims.exp;
     if (exp && false !== opts.exp) {
         now = Date.now();
         // TODO document that opts.exp can be used as leeway? Or introduce opts.leeway?
+        // fair, but not necessary
+        exp = parseInt(exp, 10);
+        if (isNaN(exp)) {
+            throw Errors.MALFORMED_EXP(JSON.stringify(jws.claims.exp));
+        }
         then = (opts.exp || 0) + parseInt(exp, 10);
         active = then - now / 1000 > 0;
         // expiration was on the token or, if not, such a token is not allowed
         if (!active) {
-            throw Errors.TOKEN_EXPIRED(exp);
+            throw Errors.EXPIRED(exp);
         }
     }
 
-    nbf = decoded.claims.nbf;
+    nbf = jws.claims.nbf;
     if (nbf) {
         active = parseInt(nbf, 10) - Date.now() / 1000 <= 0;
         if (!active) {
-            throw Errors.TOKEN_INACTIVE(nbf);
+            throw Errors.INACTIVE(nbf);
         }
     }
     if (opts.jwks || opts.jwk) {
         return overrideLookup(opts.jwks || [opts.jwk]);
     }
 
-    var kid = decoded.header.kid;
+    var kid = jws.header.kid;
     var iss;
     var fetcher;
     var fetchOne;
     if (!opts.strategy || "oidc" === opts.strategy) {
-        iss = decoded.claims.iss;
+        iss = jws.claims.iss;
         fetcher = keyfetch.oidcJwks;
         fetchOne = keyfetch.oidcJwk;
     } else if ("auth0" === opts.strategy || "well-known" === opts.strategy) {
-        iss = decoded.claims.iss;
+        iss = jws.claims.iss;
         fetcher = keyfetch.wellKnownJwks;
         fetchOne = keyfetch.wellKnownJwk;
     } else {
@@ -317,10 +328,10 @@ keyfetch.jwt.verify = async function (jwt, opts) {
     return fetcher(iss).then(verifyAny);
 
     function verifyOne(hit) {
-        if (true === keyfetch.jws.verify(decoded, hit)) {
-            return decoded;
+        if (true === keyfetch.jws.verify(jws, hit)) {
+            return jws;
         }
-        throw Errors.TOKEN_INVALID_SIGNATURE();
+        throw Errors.BAD_SIGNATURE(jws.protected + "." + jws.payload + "." + jws.signature);
     }
 
     function verifyAny(hits) {
@@ -330,20 +341,19 @@ keyfetch.jwt.verify = async function (jwt, opts) {
                     if (kid !== hit.jwk.kid && kid !== hit.thumbprint) {
                         return;
                     }
-                    if (true === keyfetch.jws.verify(decoded, hit)) {
+                    if (true === keyfetch.jws.verify(jws, hit)) {
                         return true;
                     }
-                    throw Errors.TOKEN_INVALID_SIGNATURE();
-                } else {
-                    if (true === keyfetch.jws.verify(decoded, hit)) {
-                        return true;
-                    }
+                    throw Errors.BAD_SIGNATURE();
+                }
+                if (true === keyfetch.jws.verify(jws, hit)) {
+                    return true;
                 }
             })
         ) {
-            return decoded;
+            return jws;
         }
-        throw Errors.TOKEN_UNKNOWN_SIGNER();
+        throw Errors.JWK_NOT_FOUND_OLD(kid);
     }
 
     function overrideLookup(jwks) {

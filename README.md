@@ -11,7 +11,7 @@ Works great for
 
 -   [x] `jsonwebtoken` (Auth0)
 -   [x] OIDC (OpenID Connect)
--   [x] .well-known/jwks.json (Auth0)
+-   [x] .well-known/jwks.json (Auth0, Okta)
 -   [x] Other JWKs URLs
 
 Crypto Support
@@ -19,7 +19,18 @@ Crypto Support
 -   [x] JWT verification
 -   [x] RSA (all variants)
 -   [x] EC / ECDSA (NIST variants P-256, P-384)
+-   [x] Sane error codes
 -   [ ] esoteric variants (excluded to keep the code featherweight and secure)
+
+# Table of Contents
+
+-   Install
+-   Usage
+-   API
+    -   Auth0 / Okta
+    -   OIDC
+-   Errors
+-   Change Log
 
 # Install
 
@@ -248,3 +259,49 @@ keyfetch.init({
 
 There is no background task to cleanup expired keys as of yet.
 For now you can limit the number of keys fetched by having a simple whitelist.
+
+# Errors
+
+`JSON.stringify()`d errors look like this:
+
+```js
+{
+  code: "INVALID_JWT",
+  status: 401,
+  details: [ "jwt.claims.exp = 1634804500", "DEBUG: helpful message" ]
+  message: "token's 'exp' has passed or could not parsed: 1634804500"
+}
+```
+
+SemVer Compatibility:
+
+-   `code` & `status` will remain the same.
+-   The `message` property of an error is **NOT** included in the semver compatibility guarantee (we intend to make them more client-friendly), neither is `detail` at this time (but it will be once we decide on what it should be).
+
+For backwards compatibility with v1, the non-stringified `message` is the same as what it was in v1 (and the v2 message is `client_message`, which replaces `message` in v3). Don't rely on it. Rely on `code`.
+
+| Hint                | Code            | Status | Message (truncated)                              |
+| ------------------- | --------------- | ------ | ------------------------------------------------ |
+| (developer error)   | DEVELOPER_ERROR | 500    | test...                                          |
+| (bad gateway)       | BAD_GATEWAY     | 502    | The token could not be verified because our s... |
+| (insecure issuer)   | MALFORMED_JWT   | 400    | 'test' is NOT secure. Set env 'KEYFETCH_ALLOW... |
+| (parse error)       | MALFORMED_JWT   | 400    | could not parse jwt: 'test'...                   |
+| (no issuer)         | MALFORMED_JWT   | 400    | 'iss' is not defined...                          |
+| (malformed exp)     | MALFORMED_JWT   | 400    | token's 'exp' has passed or could not parsed:... |
+| (expired)           | INVALID_JWT     | 401    | token's 'exp' has passed or could not parsed:... |
+| (inactive)          | INVALID_JWT     | 401    | token's 'nbf' has not been reached or could n... |
+| (bad signature)     | INVALID_JWT     | 401    | token signature verification was unsuccessful... |
+| (jwk not found old) | INVALID_JWT     | 401    | Retrieved a list of keys, but none of them ma... |
+| (jwk not found)     | INVALID_JWT     | 401    | No JWK found by kid or thumbprint 'test'...      |
+| (no jwkws uri)      | INVALID_JWT     | 401    | Failed to retrieve openid configuration...       |
+| (unknown issuer)    | INVALID_JWT     | 401    | token was issued by an untrusted issuer: 'tes... |
+| (failed claims)     | INVALID_JWT     | 401    | token did not match on one or more authorizat... |
+
+# Change Log
+
+Minor Breaking changes (with a major version bump):
+
+-   v3.0.0 - reworked error messages (also available in v2.1.0 as `client_message`)
+-   v2.0.0 - changes from the default `issuers = ["*"]` to requiring that an issuer (or public jwk for verification) is specified
+
+See other changes in [CHANGELOG.md](./CHANGELOG.md).
