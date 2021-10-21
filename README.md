@@ -276,26 +276,25 @@ For now you can limit the number of keys fetched by having a simple whitelist.
 SemVer Compatibility:
 
 -   `code` & `status` will remain the same.
--   The `message` property of an error is **NOT** included in the semver compatibility guarantee (we intend to make them more client-friendly), neither is `detail` at this time (but it will be once we decide on what it should be).
-
-For backwards compatibility with v1, the non-stringified `message` is the same as what it was in v1 (and the v2 message is `client_message`, which replaces `message` in v3). Don't rely on it. Rely on `code`.
+-   `message` is **NOT** included in the semver compatibility guarantee (we intend to make them more client-friendly), neither is `detail` at this time (but it will be once we decide on what it should be).
+-   `details` may be added to, but not subtracted from
 
 | Hint                | Code            | Status | Message (truncated)                              |
 | ------------------- | --------------- | ------ | ------------------------------------------------ |
 | (developer error)   | DEVELOPER_ERROR | 500    | test...                                          |
 | (bad gateway)       | BAD_GATEWAY     | 502    | The token could not be verified because our s... |
-| (insecure issuer)   | MALFORMED_JWT   | 400    | 'test' is NOT secure. Set env 'KEYFETCH_ALLOW... |
-| (parse error)       | MALFORMED_JWT   | 400    | could not parse jwt: 'test'...                   |
-| (no issuer)         | MALFORMED_JWT   | 400    | 'iss' is not defined...                          |
-| (malformed exp)     | MALFORMED_JWT   | 400    | token's 'exp' has passed or could not parsed:... |
-| (expired)           | INVALID_JWT     | 401    | token's 'exp' has passed or could not parsed:... |
-| (inactive)          | INVALID_JWT     | 401    | token's 'nbf' has not been reached or could n... |
-| (bad signature)     | INVALID_JWT     | 401    | token signature verification was unsuccessful... |
-| (jwk not found old) | INVALID_JWT     | 401    | Retrieved a list of keys, but none of them ma... |
-| (jwk not found)     | INVALID_JWT     | 401    | No JWK found by kid or thumbprint 'test'...      |
-| (no jwkws uri)      | INVALID_JWT     | 401    | Failed to retrieve openid configuration...       |
-| (unknown issuer)    | INVALID_JWT     | 401    | token was issued by an untrusted issuer: 'tes... |
-| (failed claims)     | INVALID_JWT     | 401    | token did not match on one or more authorizat... |
+| (insecure issuer)   | MALFORMED_JWT   | 400    | The token could not be verified because our s... |
+| (parse error)       | MALFORMED_JWT   | 400    | The auth token is malformed....                  |
+| (no issuer)         | MALFORMED_JWT   | 400    | The token could not be verified because it do... |
+| (malformed exp)     | MALFORMED_JWT   | 400    | The auth token could not be verified because ... |
+| (expired)           | INVALID_JWT     | 401    | The auth token is expired. To try again, go t... |
+| (inactive)          | INVALID_JWT     | 401    | The auth token isn't valid yet. It's activati... |
+| (bad signature)     | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
+| (jwk not found old) | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
+| (jwk not found)     | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
+| (no jwkws uri)      | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
+| (unknown issuer)    | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
+| (failed claims)     | INVALID_JWT     | 401    | The auth token did not pass verification beca... |
 
 # Change Log
 
