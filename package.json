@@ -1,6 +1,6 @@
 {
     "name": "keyfetch",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "description": "Lightweight support for fetching JWKs.",
     "homepage": "https://git.rootprojects.org/root/keyfetch.js",
     "main": "keyfetch.js",
