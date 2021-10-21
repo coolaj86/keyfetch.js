@@ -301,7 +301,10 @@ For backwards compatibility with v1, the non-stringified `message` is the same a
 
 Minor Breaking changes (with a major version bump):
 
--   v3.0.0 - reworked error messages (also available in v2.1.0 as `client_message`)
--   v2.0.0 - changes from the default `issuers = ["*"]` to requiring that an issuer (or public jwk for verification) is specified
+-   v3.0.0
+    -   reworked error messages (also available in v2.1.0 as `client_message`)
+    -   started using `let` and template strings (drops _really_ old node compat)
+-   v2.0.0
+    -   changes from the default `issuers = ["*"]` to requiring that an issuer (or public jwk for verification) is specified
 
 See other changes in [CHANGELOG.md](./CHANGELOG.md).
